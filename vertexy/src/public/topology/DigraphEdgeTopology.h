@@ -98,6 +98,7 @@ public:
 	}
 
 	const shared_ptr<ITopology>& getSource() const { return m_source; }
+	const vector<EdgeTopologyVertex>& getVertices() const { return m_vertices;}
 
 protected:
 	void initialize(bool mergeBidirectional, bool connected)

@@ -196,6 +196,13 @@ public:
 		return getPotentialValues(varID).lastIndexOf(true);
 	}
 
+	int getMinimumPossibleDomainValue(VarID varID) const;
+	int getMaximumPossibleDomainValue(VarID varID) const;
+
+	// Default explanation for propagation. The explanation is guaranteed to be assertive (i.e. will cause backtracking) but
+	// is not necessarily the tightest explanation possible. (It is generally rather poor.)
+	static vector<Literal> defaultExplainer(const NarrowingExplanationParams& params);
+
 	inline bool excludeValues(const Literal& literalToExclude, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		return excludeValues(literalToExclude.variable, literalToExclude.values, origin, explainer);

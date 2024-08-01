@@ -32,7 +32,8 @@ enum class EConstraintType : uint8_t
 	Offset,
 	Table,
 	Reachability,
-	Sum
+	Sum,
+	PathDistance
 };
 
 

@@ -52,6 +52,11 @@ public:
 	}
 
 	inline bool isReachable(int vertex) const { return m_vertexToLevel[vertex] != INT_MAX; }
+	inline int distanceTo(int vertex) const { return m_vertexToLevel[vertex]; }
+	inline bool isReachableWithinLimits(int vertex, tuple<int, int> limits) const
+	{
+		return isReachable(vertex) && distanceTo(vertex) >= get<0>(limits) && distanceTo(vertex) <= get<1>(limits);
+	}
 
 	void initialize(int sourceVertex)
 	{

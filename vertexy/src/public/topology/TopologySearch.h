@@ -6,6 +6,7 @@
 #include "topology/algo/DepthFirstSearch.h"
 #include "topology/algo/TopologySearchResponse.h"
 #include "topology/algo/tarjan.h"
+#include "topology/algo/ShortestPath.h"
 
 namespace Vertexy
 {
@@ -42,6 +43,23 @@ public:
 		});
 
 		return reached;
+	}
+
+	/** Returns the length of the path between Start and End (or INT_MAX if there is none) and records all edges in the path in outPath */
+	template <typename Topo>
+	inline static int shortestPathTo(const shared_ptr<Topo>& topology, int start, int end, vector<int>& outPath)
+	{
+		return shortestPathTo(*topology.get(), start, end, outPath);
+	}
+
+	/** Returns the length of the path between Start and End (or INT_MAX if there is none) and records all edges in the path in outPath */
+	template <typename Topo>
+	static int shortestPathTo(const Topo& topology, int start, int end, vector<int>& outPath)
+	{
+		bool reached = false;
+		ShortestPathAlgorithm shortestPathAlgorithm;
+		reached = shortestPathAlgorithm.find(topology, start, end, outPath);
+		return reached ? outPath.size() : INT_MAX;
 	}
 
 	/**

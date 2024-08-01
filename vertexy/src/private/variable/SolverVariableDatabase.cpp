@@ -9,6 +9,50 @@
 
 using namespace Vertexy;
 
+//
+// Default explanation function for a violated constraint. This will return a true explanation, but is not necessarily
+// the smallest explanation possible, especially for constraints involving more than 2 variables.
+//
+vector<Literal> IVariableDatabase::defaultExplainer(const NarrowingExplanationParams& params)
+{
+	// Find all dependent variables for this constraint that were previously narrowed, and add their (inverted) value to the list.
+	// The clause will look like:
+	// (Arg1 != Arg1Values OR Arg2 != Arg2Values OR [...] OR PropagatedVariable == PropagatedValues)
+	const vector<VarID>& constraintVars = params.solver->getVariablesForConstraint(params.constraint);
+	vector<Literal> clauses;
+	clauses.reserve(constraintVars.size());
+
+	bool foundPropagated = false;
+	for (int i = 0; i < constraintVars.size(); ++i)
+	{
+		VarID arg = constraintVars[i];
+		clauses.push_back(Literal(arg, params.database->getPotentialValues(arg)));
+		clauses.back().values.invert();
+
+		if (arg == params.propagatedVariable)
+		{
+			foundPropagated = true;
+			clauses.back().values.pad(params.propagatedValues.size(), false);
+			clauses.back().values.include(params.propagatedValues);
+		}
+	}
+
+	vxy_assert(foundPropagated);
+	return clauses;
+}
+
+int IVariableDatabase::getMinimumPossibleDomainValue(VarID varID) const
+{
+	vxy_assert(varID.isValid());
+	return getSolver()->getDomain(varID).getValueForIndex(getMinimumPossibleValue(varID));
+}
+
+int IVariableDatabase::getMaximumPossibleDomainValue(VarID varID) const
+{
+	vxy_assert(varID.isValid());
+	return getSolver()->getDomain(varID).getValueForIndex(getMaximumPossibleValue(varID));
+}
+
 SolverVariableDatabase::SolverVariableDatabase(ConstraintSolver* inSolver)
 	: IVariableDatabase()
 	, m_solver(inSolver)
