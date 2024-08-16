@@ -6,7 +6,6 @@
 #include "SignedClause.h"
 #include "ds/ESTree.h"
 #include "ds/RamalReps.h"
-#include "ds/BacktrackableValue.h"
 #include "topology/BacktrackingDigraphTopology.h"
 #include "topology/DigraphEdgeTopology.h"
 #include "topology/TopologyVertexData.h"
