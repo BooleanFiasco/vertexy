@@ -1114,7 +1114,7 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 
 	// Need this to actually do interesting things!
 	ConstraintSolver solver(TEXT("solveShortestPath_Max"), seed);
-	VERTEXY_LOG("Initial seed: %d", solver.getInitialSeed());
+	VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
 
 	// Vertices can be one of three types (0: source, 1: generic, 2: target)
 	constexpr int SOURCE_IDX = 0;
@@ -1224,7 +1224,6 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 			}
 		}
 
-		/*
 		EATEST_VERIFY(targetVertex != -1 && sourceVertex != -1);
 		vector<int> path;
 		int pathLength = TopologySearchAlgorithm::shortestPathTo(topology, sourceVertex, targetVertex, path);
@@ -1232,7 +1231,6 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 		EATEST_VERIFY(pathLength != 0);
 		EATEST_VERIFY(pathLength >= get<0>(limits));
 		EATEST_VERIFY(pathLength <= get<1>(limits));
-		*/
 
 		// Print solution
 		if (printVerbose)

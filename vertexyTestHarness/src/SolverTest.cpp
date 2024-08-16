@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("ShortestPath-Max-4", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 4), 6, 28, PRINT_VERBOSE); });
 	Suite.AddTest("ShortestPath-Max-5", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 5), 6, 30, PRINT_VERBOSE); });
 	Suite.AddTest("ShortestPath-ReachabilityOnly", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, INT_MAX-1), 6, 30, PRINT_VERBOSE); });
-	//Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(3, INT_MAX), 6, PRINT_VERBOSE); });
+	//Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(5, INT_MAX-1), 6, 2, PRINT_VERBOSE); });
 	//Suite.AddTest("ShortestPath-Range", []() { return TestSolvers::solveShortestPath_Range(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	//Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	//Suite.AddTest("ZoneGraph", []() { return ZoneGraphSolver::solve(NUM_TIMES, 50, 4, FORCE_SEED, PRINT_VERBOSE); });
