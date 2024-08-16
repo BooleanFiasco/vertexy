@@ -33,7 +33,8 @@ enum class EConstraintType : uint8_t
 	Table,
 	Reachability,
 	Sum,
-	PathDistance
+	PathDistance,
+	ShortestPath
 };
 
 

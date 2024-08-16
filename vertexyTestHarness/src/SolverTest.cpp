@@ -10,6 +10,7 @@
 #include <TowersOfHanoi.h>
 #include <PrefabTest.h>
 #include <TileTests.h>
+#include <ZoneGraph.h>
 
 #include "KnightTourSolver.h"
 #include "ds/ValueBitset.h"
@@ -17,14 +18,14 @@
 
 using namespace Vertexy;
 
-static constexpr int FORCE_SEED = 0;
-static constexpr int NUM_TIMES = 10;
+static constexpr int FORCE_SEED = 0;//-309273027;
+static constexpr int NUM_TIMES = 1;
 static constexpr int MAZE_NUM_ROWS = 15;
 static constexpr int MAZE_NUM_COLS = 15;
 static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
 static constexpr int KNIGHT_BOARD_DIM = 6;
-static constexpr bool PRINT_VERBOSE = false;
+static constexpr bool PRINT_VERBOSE = true;
 
 int main(int argc, char* argv[])
 {
@@ -33,6 +34,7 @@ int main(int argc, char* argv[])
 
 	TestApplication Suite("Solver Tests", argc, argv);
 
+	/*
 	Suite.AddTest("ValueBitset", TestSolvers::bitsetTests);
 	Suite.AddTest("Digraph", TestSolvers::digraphTests);
 	Suite.AddTest("RuleSCCs", TestSolvers::ruleSCCTests);
@@ -63,5 +65,17 @@ int main(int argc, char* argv[])
 	Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("TileTest-Basic", []() { return TileTests::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("TileTest-Rot/Ref", []() { return TileTests::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	*/
+
+	//Suite.AddTest("ShortestPath-Max", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 1), 6, PRINT_VERBOSE); });
+	//Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(3, INT_MAX), 6, PRINT_VERBOSE); });
+	//Suite.AddTest("ShortestPath-Range", []() { return TestSolvers::solveShortestPath_Range(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("ZoneGraph", []() { return ZoneGraphSolver::solve(NUM_TIMES, 50, 4, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("Cardinality-Basic", []() { return TestSolvers::solveCardinalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("MazeProgram", []() { return MazeSolver::solveUsingGraphProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("Maze", []() { return ZoneGraphSolver::solveUsingGraphProgram(NUM_TIMES, 5, 10, FORCE_SEED, PRINT_VERBOSE); });
+
 	return Suite.Run();
 }

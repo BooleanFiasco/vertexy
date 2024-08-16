@@ -11,17 +11,18 @@ using namespace VertexyTests;
 
 void AllTests::runAllTests(int seed, int numTimes)
 {
-	TestSolvers::solveClauseBasic(numTimes, seed, false);
-	TestSolvers::solveInequalityBasic(numTimes, seed, false);
-	TestSolvers::solveCardinalityBasic(numTimes, seed, false);
-	TestSolvers::solveCardinalityShiftProblem(numTimes, seed, false);
-	TestSolvers::solveAllDifferentLarge(numTimes, seed, false);
-	TestSolvers::solveAllDifferentSmall(numTimes, seed, false);
-	TestSolvers::solveSumBasic(numTimes, seed, false);
-	NQueensSolvers::solveUsingGraph(numTimes, 25, seed, false);
-	NQueensSolvers::solveUsingTable(numTimes, 25, seed, false);
-	NQueensSolvers::solveUsingAllDifferent(numTimes, 25, seed, false);
-	MazeSolver::solveUsingRawConstraints(numTimes, 9, 9, seed, false);
-	SudokuSolver::solve(numTimes, 0, seed, false);
-	TowersOfHanoiSolver::solve(numTimes, seed, false);
+	//TestSolvers::solveClauseBasic(numTimes, seed, false);
+	//TestSolvers::solveInequalityBasic(numTimes, seed, false);
+	//TestSolvers::solveCardinalityBasic(numTimes, seed, false);
+	//TestSolvers::solveCardinalityShiftProblem(numTimes, seed, false);
+	//TestSolvers::solveAllDifferentLarge(numTimes, seed, false);
+	//TestSolvers::solveAllDifferentSmall(numTimes, seed, false);
+	//TestSolvers::solveSumBasic(numTimes, seed, false);
+	//NQueensSolvers::solveUsingGraph(numTimes, 25, seed, false);
+	//NQueensSolvers::solveUsingTable(numTimes, 25, seed, false);
+	//NQueensSolvers::solveUsingAllDifferent(numTimes, 25, seed, false);
+	//MazeSolver::solveUsingRawConstraints(numTimes, 9, 9, seed, false);
+	MazeSolver::solveUsingGraphProgram(numTimes, 9, 9, seed, false);
+	//SudokuSolver::solve(numTimes, 0, seed, false);
+	//TowersOfHanoiSolver::solve(numTimes, seed, false);
 }

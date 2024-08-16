@@ -56,10 +56,16 @@ public:
 	template <typename Topo>
 	static int shortestPathTo(const Topo& topology, int start, int end, vector<int>& outPath)
 	{
+		outPath.clear();
+		if (start == end)
+		{
+			return 0;
+		}
+
 		bool reached = false;
 		ShortestPathAlgorithm shortestPathAlgorithm;
 		reached = shortestPathAlgorithm.find(topology, start, end, outPath);
-		return reached ? outPath.size() : INT_MAX;
+		return reached ? outPath.size() - 1 : INT_MAX;
 	}
 
 	/**

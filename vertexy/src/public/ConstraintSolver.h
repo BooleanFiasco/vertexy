@@ -125,6 +125,7 @@ class ConstraintSolver : public IVariableDomainProvider
 	//
 
 	const wstring& getName() const { return m_name; }
+	int getInitialSeed() const { return m_initialSeed; }
 
 	void setOutputLog(const shared_ptr<SolverDecisionLog>& log)
 	{

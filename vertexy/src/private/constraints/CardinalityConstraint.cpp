@@ -1087,6 +1087,9 @@ bool CardinalityConstraint::lbcHi(IVariableDatabase* db, vector<Interval>& inter
 
 void CardinalityConstraint::explainLowerBoundPropagation(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
+	IConstraint::explain(params, outExplanation);
+	return;
+
 	// TODO: This seems like a reasonable explanation, but maybe there is a better one?
 
 	//
@@ -1158,6 +1161,9 @@ bool CardinalityConstraint::checkConflicting(IVariableDatabase* db) const
 
 void CardinalityConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
+	IConstraint::explain(params, outExplanation);
+	return;
+
 	if (m_failedUpperBoundMatching)
 	{
 		m_upperBoundExplainer.getExplanation(*params.database, VarID::INVALID, {}, outExplanation);

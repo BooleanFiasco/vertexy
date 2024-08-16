@@ -240,7 +240,7 @@ public:
 		const bool success = isReachable(vertex) && distanceTo(vertex) >= get<0>(limits) && distanceTo(vertex) <= get<1>(limits);
 		if (!success)
 		{
-			VERTEXY_LOG("vertex %d is %d distance from %d which is out of range %d:%d for graph [%s]", vertex, distanceTo(vertex), m_sourceVertex, get<0>(limits), get<1>(limits), tag);
+			//VERTEXY_LOG("vertex %d is %d distance from %d which is out of range %d:%d for graph [%s]", vertex, distanceTo(vertex), m_sourceVertex, get<0>(limits), get<1>(limits), tag);
 		}
 		return success;
 	}
