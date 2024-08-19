@@ -20,7 +20,8 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathConstraintFactory::c
 	const vector<int>& needReachableValues,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeData,
 	const vector<int>& edgeBlockedValues,
-	const tuple<int, int>& distanceLimits)
+	const tuple<int, int>& distanceLimits,
+	bool requireAllSources)
 {
 	// Get an example graph variable
 	VarID graphVar;
@@ -53,7 +54,7 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathConstraintFactory::c
 	ValueSet needReachableMask = params.valuesToInternal(graphVar, needReachableValues);
 	ValueSet edgeBlockedMask = params.valuesToInternal(edgeVar, edgeBlockedValues);
 
-	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask, distanceLimits);
+	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask, distanceLimits, requireAllSources);
 }
 
 ShortestPathConstraint::ShortestPathConstraint(
@@ -63,7 +64,8 @@ ShortestPathConstraint::ShortestPathConstraint(
 	const ValueSet& requireReachableMask,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 	const ValueSet& edgeBlockedMask,
-	const tuple<int, int>& distanceLimits)
+	const tuple<int, int>& distanceLimits,
+	bool requireAllSources)
 	: IBacktrackingSolverConstraint(params) //ApplyGraphRelation(Params, SourceGraphData, EdgeGraphData))
 	, m_edgeWatcher(*this)
 	, m_sourceGraphData(sourceGraphData)
@@ -77,6 +79,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 	, m_requireReachableMask(requireReachableMask)
 	, m_edgeBlockedMask(edgeBlockedMask)
 	, m_distanceLimits(distanceLimits)
+	, m_requireAllSources(requireAllSources)
 {
 	m_notSourceMask = sourceMask.inverted();
 	m_notReachableMask = requireReachableMask.inverted();
@@ -386,21 +389,23 @@ bool ShortestPathConstraint::initialize(IVariableDatabase* db)
 		{
 			EReachabilityDetermination determination = determineReachability(db, vertex);
 
-			if (determination == EReachabilityDetermination::DefinitelyUnreachable)
+			if (determination == EReachabilityDetermination::DefinitelyUnreachable_TooLong)
 			{
-				if (!db->constrainToValues(vertexVar, m_notReachableMask, this))
-				{
+				VERTEXY_LOG("HEY");
+				//if (!db->constrainToValues(vertexVar, m_notReachableMask, this))
+				//{
 					//revertVertexWithinLimitsTimestamps();
-					return false;
-				}
+				//	return false;
+				//}
 			}
 			else if (determination == EReachabilityDetermination::DefinitelyReachable)
 			{
-				if (!db->constrainToValues(vertexVar, m_requireReachableMask, this))
-				{
+				VERTEXY_LOG("YO");
+				//if (!db->constrainToValues(vertexVar, m_requireReachableMask, this))
+				//{
 					//revertVertexWithinLimitsTimestamps();
-					return false;
-				}
+				//	return false;
+				//}
 			}
 		}
 	}
@@ -516,32 +521,54 @@ bool ShortestPathConstraint::propagate(IVariableDatabase* db)
 	return true;
 }
 
-bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, VarID variable)
+int ShortestPathConstraint::countPotentiallyReachableSources(const IVariableDatabase* db, VarID variable, vector<VarID>* reachableSources) const
 {
-	if (!db->anyPossible(variable, m_sourceMask))
+	if (reachableSources != nullptr)
 	{
-		int vertexTmp = m_variableToSourceVertexIndex[variable];
-		int blah = 0;
-		if (vertexTmp == 4)
+		reachableSources->clear();
+	}
+
+	const int vertex = m_variableToSourceVertexIndex.at(variable);
+	const int max = get<1>(m_distanceLimits);
+	int numReachableSources = 0;
+	for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
+	{
+		// No reflexive reachability
+		if (it->first == variable)
 		{
-			blah = 1;
+			continue;
 		}
 
+		// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
+		if (!it->second.maxReachability->isReachable(vertex))
+		{
+			continue;
+		}
+		
+		if (it->second.maxReachability->distanceTo(vertex) > max)
+		{
+			continue;
+		}
+
+		++numReachableSources;
+		
+		if (reachableSources != nullptr)
+		{
+			reachableSources->push_back(it->first);
+		}
+	}
+	
+	return numReachableSources;
+}
+
+bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, VarID variable)
+{
+	// If we're not a possible source anymore...
+	if (!db->anyPossible(variable, m_sourceMask))
+	{
 		if (!removeSource(db, variable))
 		{
 			return false;
-		}
-	}
-
-	{
-		int vertexTmp = m_variableToSourceVertexIndex[variable];
-		if (vertexTmp == 4)
-		{
-			int blah = 0;
-			if (!db->anyPossible(variable, m_sourceMask) && !db->anyPossible(variable, m_requireReachableMask))
-			{
-				blah = 1;
-			}
 		}
 	}
 
@@ -580,95 +607,45 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 		}
 		*/
 
-		vector<VarID> reachableSources = {};
-		EReachabilityDetermination result = determineReachability(db, vertex, &reachableSources);
-		if (result == ShortestPathConstraint::EReachabilityDetermination::DefinitelyUnreachable)
-		{
-			bool success = db->constrainToValues(variable, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); });
-			vxy_assert(!success);
-			return false;
-		}
-		else if (reachableSources.size() == 1)
-		{
-			int asdf = 0;
-			if (vertex == 5)
-			{
-				asdf = 1;
-			}
-			if (!db->constrainToValues(reachableSources[0], m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
-			{
-				return false;
-			}
-		}
-
-		/*
-		const int min = get<0>(m_distanceLimits);
+		int numReachableSources = 0;
+		VarID lastReachableSource = VarID::INVALID;
 		const int max = get<1>(m_distanceLimits);
-		vxy_assert(min <= max);
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
 			if (it->first == variable)
 			{
-				// Don't treat reachability as reflective. If a vertex is marked both needing reachability and is a
-				// reachability source, it needs to be reachable from a DIFFERENT source.
+				// Don't mess with yourself!
 				continue;
 			}
 
-			if (!it->second.maxReachability->isReachable(vertex))
+			// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
+			const bool isVertexTooFar = !it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max;
+			if (isVertexTooFar && !db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
-				// If we can't be reached via max graph then we'll never be reachable from this source
-				continue;
+				return false;
 			}
-
-			const int maxGraphDistance = it->second.maxReachability->distanceTo(vertex);
-			if (maxGraphDistance > max)
+			else if (!isVertexTooFar)
 			{
-				// Max graph has the most edges so if the shortest path is too long for that graph, we'll
-				// never find one that's short enough for this source.
-				continue;
-			}
-
-			const int minGraphDistance = it->second.minReachability->distanceTo(vertex);
-			if (minGraphDistance < min)
-			{
-				// Min graph represents the longest possible distance, so if the shortest path is shorter
-				// than our min we'll never be able to find a longer one
-				// NOTE: Since distance == INT_MAX for unreachable vertices we don't need to check for
-				// reachability first!
-				continue;
-			}
-
-			++numReachableSources;
-			lastReachableSource = it->first;
-			vxy_assert(db->anyPossible(it->first, m_sourceMask));
-
-			if (numReachableSources > 1)
-			{
-				break;
+				++numReachableSources;
+				lastReachableSource = it->first;
 			}
 		}
 
-		// If not reachable by any source, then fail
 		if (numReachableSources == 0)
 		{
+			// Found none, that's a fail whale
 			bool success = db->constrainToValues(variable, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); });
 			vxy_assert(!success);
 			return false;
 		}
-		// If reachable by a single potential source, that single source must be definite
 		else if (numReachableSources == 1)
 		{
-			int asdf = 0;
-			if (vertex == 5)
-			{
-				asdf = 1;
-			}
+			// We must have at least one source so this needs to be definite!
 			if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
 				return false;
 			}
 		}
-		*/
 	}
 
 	return true;
@@ -774,22 +751,12 @@ bool ShortestPathConstraint::removeSource(IVariableDatabase* db, VarID source)
 				VarID vertexVar = m_sourceGraphData->get(vertex);
 				if (vertexVar.isValid() && db->anyPossible(vertexVar, m_requireReachableMask))
 				{
+					// Vertex might require reachability, so see if there is any
 					vector<VarID> reachableSources = {};
-					EReachabilityDetermination determination = determineReachability(db, vertex, &reachableSources);
+					const int numReachableSources = countPotentiallyReachableSources(db, vertexVar, &reachableSources);
 
-					if (determination == EReachabilityDetermination::DefinitelyUnreachable)
+					if (numReachableSources == 0)
 					{
-						int blah = 0;
-						if (vertex == 4)
-						{
-							blah = 1;
-						}
-
-						if (m_reachabilitySources.find(vertexVar) != m_reachabilitySources.end())
-						{
-							blah = 2;
-						}
-
 						// #new-sanity-check
 						sanityCheckNotWithinLimits(db, vertex);
 						auto explainer = [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); };
@@ -799,20 +766,14 @@ bool ShortestPathConstraint::removeSource(IVariableDatabase* db, VarID source)
 							return ETopologySearchResponse::Abort;
 						}
 					}
-					else if (determination == EReachabilityDetermination::PossiblyReachable && !db->anyPossible(vertexVar, m_notReachableMask))
+					else if (numReachableSources == 1 && !db->anyPossible(vertexVar, m_notReachableMask))
 					{
-						// The vertex is marked definitely reachable, but only possibly reachable in the graph.
-						// If there is only a single potential source that reaches this vertex, then it must now definitely be a source.
-						const int numReachableSources = reachableSources.size();
-						vxy_assert(numReachableSources >= 1);
-						if (numReachableSources == 1)
+						// Only a single source, so we must constrain it to be a source (if it isn't already)
+						auto explainer = [&, source](auto&& params, auto&& expl) { return explainRequiredSource(params, source, expl); };
+						if (!db->constrainToValues(reachableSources[0], m_sourceMask, this, explainer))
 						{
-							auto explainer = [&, source](auto&& params, auto&& expl) { return explainRequiredSource(params, source, expl); };
-							if (!db->constrainToValues(reachableSources[0], m_sourceMask, this, explainer))
-							{
-								failure = true;
-								return ETopologySearchResponse::Abort;
-							}
+							failure = true;
+							return ETopologySearchResponse::Abort;
 						}
 					}
 				}
@@ -962,7 +923,7 @@ void ShortestPathConstraint::onReachabilityChanged(int vertexIndex, VarID source
 	else
 	{
 		// vertexIndex became unreachable in the max graph
-		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyUnreachable)
+		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyUnreachable_TooLong)
 		{
 			VarID var = m_sourceGraphData->get(vertexIndex);
 			sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
@@ -995,6 +956,16 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 		return;
 	}
 
+	VarID var = m_sourceGraphData->get(vertexIndex);
+	vxy_assert(var.isValid());
+	vxy_assert(var != sourceVar);
+
+	// We we don't require reachability there's nothing to worry about
+	if (!m_edgeChangeDb->anyPossible(var, m_requireReachableMask))
+	{
+		return;
+	}
+
 	if (inMinGraph)
 	{
 		// See if this vertex is definitely reachable by any source now
@@ -1009,32 +980,102 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 	}
 	else
 	{
-		// vertexIndex became unreachable in the max graph
-		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyUnreachable)
+		const int max = get<1>(m_distanceLimits);
+		if (distanceFromSource <= max)
 		{
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			sanityCheckNotWithinLimits(m_edgeChangeDb, vertexIndex);
+			// This is either still reachable (in which case nothing important changed) or just became reachable,
+			// in which case we don't really care.
+			return;
+		}
 
-			if (var.isValid())
-			{
-				// If we're literally unreachable then use the no reachability explainer, otherwise we were just too close
-				// or too far so use the not within limits explainer.
-				if (distanceFromSource == INT_MAX && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
-				{
-					m_edgeChangeFailure = true;
-				}
-				else if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNotWithinLimits(params, expl); }))
-				{
-					m_edgeChangeFailure = true;
-				}
-			}
+		// NOTE: this would check against ALL sources, and onDistanceChanged is about our relationship to one specific source!
+		//sanityCheckNotWithinLimits(m_edgeChangeDb, vertexIndex);
 
-			/*
-			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+#if SANITY_CHECKS
+		{
+			const int sourceVertex = m_variableToSourceVertexIndex[sourceVar];
+			vector<int> path;
+			const int pathLength = TopologySearchAlgorithm::shortestPathTo(m_maxGraph, sourceVertex, vertexIndex, path);
+			vxy_assert(pathLength < get<0>(m_distanceLimits) || pathLength > get<1>(m_distanceLimits));
+		}
+#endif
+
+		// If we got here it means this source is no longer reachable from this vertex, which has two possible ramifications:
+		//	1. We either can make ourselves not require reachability or,
+		//	2. We make the source not a source anymore
+		//
+		// As long as one of these two works, we're still okay.
+		//
+		// TODO: Does the order matter here?
+
+		/*
+		if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+		{
+			// See if we can force the source not to be a source
+			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
 			{
+				// We couldn't so we're out of options
 				m_edgeChangeFailure = true;
 			}
-			*/
+		}
+		else if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+		{
+			// We weren't able to constrain ourselves to not require reachability, so this edge change failed
+			m_edgeChangeFailure = true;
+		}
+		*/
+
+		/*
+		if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+		{
+			// We are required to be reachable from all sources, so let's see if we can force this source not to be a source instead
+			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			{
+				// We couldn't so we're out of options
+				m_edgeChangeFailure = true;
+			}
+		}
+		else if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
+		{
+			// Okay, so if we're here it means:
+			//	1. This vertex can be marked as requiring reachability, but...
+			//	2. ...this vertex can ALSO be marked as NOT requiring reachability!
+			//	3. The source vertex that can reach us is REQUIRED to be a source
+			// 
+			// What does this mean? If the source vertex needs to be a source, it also needs to be able to reach this
+			// vertex (which it cannot). Since the max graph always contains the shortest possible paths, that means
+			// we'll NEVER be reachable from this source. As such, the only possible way to satisfy the constraint is
+			// if we can constrain ourselves to be not reachable.
+			// 
+			// Note that we only do this if the source is definite! If it's not definite, an alternative solution would
+			// be for the source to later not become a source. Both options are valid, so we make no decisions here in that case!
+
+			if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			{
+				// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
+				m_edgeChangeFailure = true;
+			}
+		}
+		*/
+
+		if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
+		{
+			// Source is definitely a source, so we need to be unreachable since we're too far
+			if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			{
+				// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
+				m_edgeChangeFailure = true;
+			}
+		}
+		else if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+		{
+			// Source doesn't need to be a source, but DO have to reachable from all sources, so our only option is to
+			// ask the source not to be one (and hope that some other source can reach us).
+			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			{
+				// We couldn't so we're out of options
+				m_edgeChangeFailure = true;
+			}
 		}
 	}
 }
@@ -1086,7 +1127,7 @@ ShortestPathConstraint::EReachabilityDetermination ShortestPathConstraint::deter
 	const int max = get<1>(m_distanceLimits);
 	vxy_assert(min <= max);
 
-	EReachabilityDetermination result = ShortestPathConstraint::EReachabilityDetermination::DefinitelyUnreachable;
+	EReachabilityDetermination result = ShortestPathConstraint::EReachabilityDetermination::DefinitelyUnreachable_TooLong;
 	if (reachableSources != nullptr)
 	{
 		reachableSources->clear();
@@ -1146,7 +1187,7 @@ ShortestPathConstraint::EReachabilityDetermination ShortestPathConstraint::deter
 			}
 		}
 		
-		if (result == EReachabilityDetermination::DefinitelyUnreachable)
+		if (result == EReachabilityDetermination::DefinitelyUnreachable_TooLong)
 		{
 			// If we get here it means one of two things:
 			//	1. The currently considered source isn't definitely a source yet

@@ -31,7 +31,8 @@ namespace Vertexy
 			const ValueSet& requireReachableMask,
 			const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 			const ValueSet& edgeBlockedMask,
-			const tuple<int, int>& distanceLimits
+			const tuple<int, int>& distanceLimits,
+			bool requireAllSources
 		);
 
 		struct ShortestPathConstraintFactory
@@ -48,8 +49,9 @@ namespace Vertexy
 				const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 				// Values of vertices in the edge graph establishing that edge as "off"
 				const vector<int>& edgeBlockedValues,
-				// Min/max length of the shortest path. Min = 0 means no lower limit, Max = INT_MAX means no upper limit. Thus, { 0, INT_MAX } is equivalent to ReachabilityConstraint (and is the default)
-				const tuple<int, int>& distanceLimits = make_tuple( 0, INT_MAX ));
+				// Min/max length of the shortest path. Min = 0 means no lower limit, Max = INT_MAX means no upper limit. Thus, { 0, INT_MAX-1 } is equivalent to ReachabilityConstraint (and is the default)
+				const tuple<int, int>& distanceLimits = make_tuple( 0, INT_MAX-1 ),
+				bool requireAllSources = false);
 		};
 
 		using Factory = ShortestPathConstraintFactory;
@@ -75,13 +77,14 @@ namespace Vertexy
 			// Reachable from a definite source
 			PossiblyReachable,
 			// Reachable from a possible source
-			DefinitelyUnreachable,
-			// Unreachable from any possible source
-			PossiblyUnreachable,
-			// Unreachable but perhaps we don't actually care
+			DefinitelyUnreachable_TooLong,
+			// Unreachable due to the path being longer than the max limit (or entirely unreachable!)
+			DefinitelyUnreachable_TooShort,
+			// Unreachable due to the path being shorter than the min limit
 		};
 
 		EReachabilityDetermination determineReachability(const IVariableDatabase* db, int vertex, vector<VarID>* reachableSources = nullptr);
+		int countPotentiallyReachableSources(const IVariableDatabase* db, VarID variable, vector<VarID>* reachableSources = nullptr) const;
 		bool processVertexVariableChange(IVariableDatabase* db, VarID variable);
 		void updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable);
 		void onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
@@ -157,6 +160,7 @@ namespace Vertexy
 		shared_ptr<EdgeTopology> m_edgeGraph;
 
 		tuple<int, int> m_distanceLimits;
+		bool m_requireAllSources;
 
 		// Contains edges that DEFINITELY exist. Edges are only added to this graph.
 		shared_ptr<BacktrackingDigraphTopology> m_minGraph;

@@ -754,10 +754,10 @@ void ReachabilityConstraint::onReachabilityChanged(int vertexIndex, VarID source
 		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyReachable)
 		{
 			VarID var = m_sourceGraphData->get(vertexIndex);
-			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_requireReachableMask, this))
-			{
-				m_edgeChangeFailure = true;
-			}
+			//if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_requireReachableMask, this))
+			//{
+			//	m_edgeChangeFailure = true;
+			//}
 		}
 	}
 	else

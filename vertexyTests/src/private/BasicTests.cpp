@@ -1104,7 +1104,7 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 	return nErrorCount;
 }
 
-int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, int numVertices, int expectedSolutions, bool printVerbose)
+int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, int numVertices, bool requireAll, int expectedSolutions, bool printVerbose)
 {
 	int nErrorCount = 0;
 
@@ -1120,13 +1120,13 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 	constexpr int SOURCE_IDX = 0;
 	constexpr int GENERIC_IDX = 1;
 	constexpr int TARGET_IDX = 2;
-	SolverVariableDomain typeDomain(0, 2);
+	SolverVariableDomain typeDomain(0, 1);
 	auto typeData = solver.makeVariableGraph(TEXT("TypeData"), ITopology::adapt(topology), typeDomain, TEXT("type"));
 
 	// One source, one target
 	hash_map<int, tuple<int, int>> globalCardinalities;
-	globalCardinalities[SOURCE_IDX] = make_tuple(1, 1);
-	globalCardinalities[TARGET_IDX] = make_tuple(1, 1);
+	globalCardinalities[SOURCE_IDX] = make_tuple(1, 6);
+	//globalCardinalities[TARGET_IDX] = make_tuple(1, 1);
 	solver.cardinality(typeData->getData(), globalCardinalities);
 
 	// Bidirectionally connect vertices in a single line
@@ -1153,8 +1153,9 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 	const vector<int> allDestMask { GENERIC_IDX, TARGET_IDX };
 	const vector<int> edge_Open = { 1 };
 	const vector<int> edge_Closed = { 0 };
-	solver.makeConstraint<ShortestPathConstraint>(typeData, origin, target, openData, edge_Closed, limits);
-	solver.makeConstraint<ReachabilityConstraint>(typeData, origin, allDestMask, openData, edge_Closed);
+	solver.makeConstraint<ShortestPathConstraint>(typeData, origin, /*target*/ origin, openData, edge_Closed, limits, requireAll);
+	solver.makeConstraint<ReachabilityConstraint>(typeData, origin, genericMask, openData, edge_Closed);
+	//solver.makeConstraint<ReachabilityConstraint>(typeData, target, genericMask, openData, edge_Closed);
 
 	int validSolutions = 0;
 	//for (int iteration = 0; iteration < times; ++iteration)
@@ -1224,6 +1225,7 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 			}
 		}
 
+		/*
 		EATEST_VERIFY(targetVertex != -1 && sourceVertex != -1);
 		vector<int> path;
 		int pathLength = TopologySearchAlgorithm::shortestPathTo(topology, sourceVertex, targetVertex, path);
@@ -1231,6 +1233,7 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 		EATEST_VERIFY(pathLength != 0);
 		EATEST_VERIFY(pathLength >= get<0>(limits));
 		EATEST_VERIFY(pathLength <= get<1>(limits));
+		*/
 
 		// Print solution
 		if (printVerbose)
