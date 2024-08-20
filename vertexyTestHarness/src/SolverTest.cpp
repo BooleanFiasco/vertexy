@@ -25,7 +25,7 @@ static constexpr int MAZE_NUM_COLS = 15;
 static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
 static constexpr int KNIGHT_BOARD_DIM = 6;
-static constexpr bool PRINT_VERBOSE = true;
+static constexpr bool PRINT_VERBOSE = false;
 
 int main(int argc, char* argv[])
 {
@@ -67,13 +67,13 @@ int main(int argc, char* argv[])
 	Suite.AddTest("TileTest-Rot/Ref", []() { return TileTests::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	*/
 
-	//Suite.AddTest("ShortestPath-Max-1", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 1), 6, false, 10, PRINT_VERBOSE); });
-	//Suite.AddTest("ShortestPath-Max-2", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 2), 6, false, 18, PRINT_VERBOSE); });
-	//Suite.AddTest("ShortestPath-Max-3", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 3), 6, false, 24, PRINT_VERBOSE); });
-	//Suite.AddTest("ShortestPath-Max-4", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 4), 6, false, 28, PRINT_VERBOSE); });
-	//Suite.AddTest("ShortestPath-Max-5", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 5), 6, false, 30, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-1", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 1), 6, false, 10, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-2", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 2), 6, false, 18, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-3", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 3), 6, false, 24, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-4", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 4), 6, false, 28, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-5", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 5), 6, false, 30, PRINT_VERBOSE); });
 	//Suite.AddTest("ShortestPath-ReachabilityOnly", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, INT_MAX-1), 6, false, 30, PRINT_VERBOSE); });
-	Suite.AddTest("ShortestPath-Max-All-2", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(0, 2), 6, true, 13, PRINT_VERBOSE); });
+	Suite.AddTest("ShortestPath-Max-S2S-All-2", []() { return TestSolvers::solveShortestPath_S2S(NUM_TIMES, FORCE_SEED, make_tuple(0, 2), 6, true, 13, PRINT_VERBOSE); });
 	//Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(5, INT_MAX-1), 6, true, 2, true); });
 	//Suite.AddTest("ShortestPath-Range", []() { return TestSolvers::solveShortestPath_Range(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	//Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });

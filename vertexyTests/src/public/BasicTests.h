@@ -33,6 +33,7 @@ public:
 	static int solveProgram_hamiltonian(int seed, bool printVerbose = true);
 	static int solveProgram_hamiltonianGraph(int seed, bool printVerbose = true);
 	static int solveShortestPath(int times, int seed, tuple<int, int> limits, int numVertices, bool requireAll, int expectedSolution, bool printVerbose = true);
+	static int solveShortestPath_S2S(int times, int seed, tuple<int, int> limits, int numVertices, bool requireAll, int expectedSolution, bool printVerbose = true);
 };
 
 }

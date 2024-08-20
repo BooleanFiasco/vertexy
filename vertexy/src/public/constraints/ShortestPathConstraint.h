@@ -25,6 +25,12 @@ namespace Vertexy
 	class ShortestPathConstraint : public IBacktrackingSolverConstraint
 	{
 	public:
+		enum class ESourceRequirement : uint8_t
+		{
+			Any,	// Reachable from at least one source
+			All		// Reachable from every source
+		};
+
 		ShortestPathConstraint(const ConstraintFactoryParams& params,
 			const shared_ptr<TTopologyVertexData<VarID>>& sourceGraphData,
 			const ValueSet& sourceMask,
@@ -32,7 +38,7 @@ namespace Vertexy
 			const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 			const ValueSet& edgeBlockedMask,
 			const tuple<int, int>& distanceLimits,
-			bool requireAllSources
+			ESourceRequirement sourceRequirement
 		);
 
 		struct ShortestPathConstraintFactory
@@ -51,7 +57,7 @@ namespace Vertexy
 				const vector<int>& edgeBlockedValues,
 				// Min/max length of the shortest path. Min = 0 means no lower limit, Max = INT_MAX means no upper limit. Thus, { 0, INT_MAX-1 } is equivalent to ReachabilityConstraint (and is the default)
 				const tuple<int, int>& distanceLimits = make_tuple( 0, INT_MAX-1 ),
-				bool requireAllSources = false);
+				ESourceRequirement sourceRequirement = ESourceRequirement::Any);
 		};
 
 		using Factory = ShortestPathConstraintFactory;
@@ -160,7 +166,7 @@ namespace Vertexy
 		shared_ptr<EdgeTopology> m_edgeGraph;
 
 		tuple<int, int> m_distanceLimits;
-		bool m_requireAllSources;
+		ESourceRequirement m_sourceRequirement;
 
 		// Contains edges that DEFINITELY exist. Edges are only added to this graph.
 		shared_ptr<BacktrackingDigraphTopology> m_minGraph;

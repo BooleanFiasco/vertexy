@@ -21,7 +21,7 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathConstraintFactory::c
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeData,
 	const vector<int>& edgeBlockedValues,
 	const tuple<int, int>& distanceLimits,
-	bool requireAllSources)
+	ESourceRequirement sourceRequirement)
 {
 	// Get an example graph variable
 	VarID graphVar;
@@ -54,7 +54,7 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathConstraintFactory::c
 	ValueSet needReachableMask = params.valuesToInternal(graphVar, needReachableValues);
 	ValueSet edgeBlockedMask = params.valuesToInternal(edgeVar, edgeBlockedValues);
 
-	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask, distanceLimits, requireAllSources);
+	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask, distanceLimits, sourceRequirement);
 }
 
 ShortestPathConstraint::ShortestPathConstraint(
@@ -65,7 +65,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 	const ValueSet& edgeBlockedMask,
 	const tuple<int, int>& distanceLimits,
-	bool requireAllSources)
+	ESourceRequirement sourceRequirement)
 	: IBacktrackingSolverConstraint(params) //ApplyGraphRelation(Params, SourceGraphData, EdgeGraphData))
 	, m_edgeWatcher(*this)
 	, m_sourceGraphData(sourceGraphData)
@@ -79,7 +79,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 	, m_requireReachableMask(requireReachableMask)
 	, m_edgeBlockedMask(edgeBlockedMask)
 	, m_distanceLimits(distanceLimits)
-	, m_requireAllSources(requireAllSources)
+	, m_sourceRequirement(sourceRequirement)
 {
 	m_notSourceMask = sourceMask.inverted();
 	m_notReachableMask = requireReachableMask.inverted();
@@ -477,7 +477,7 @@ bool ShortestPathConstraint::propagate(IVariableDatabase* db)
 	m_edgeProcessList.clear();
 
 #if REACHABILITY_USE_RAMAL_REPS
-	// Batch-update reachability for all edge changes. This will trigger OnReachabilityChanged callbacks.
+	// Batch-update shortest paths for all edge changes. This will trigger OnDistanceChanged callbacks.
 	{
 		vxy_assert(!m_edgeChangeFailure);
 		TValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
@@ -618,8 +618,22 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 				continue;
 			}
 
-			// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
 			const bool isVertexTooFar = !it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max;
+			if (!isVertexTooFar)
+			{
+				++numReachableSources;
+				lastReachableSource = it->first;
+			}
+			else if (m_sourceRequirement == ShortestPathConstraint::ESourceRequirement::All)
+			{
+				// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
+				if (!db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
+				{
+					return false;
+				}
+			}
+
+			/*
 			if (isVertexTooFar && !db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
 				return false;
@@ -629,6 +643,7 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 				++numReachableSources;
 				lastReachableSource = it->first;
 			}
+			*/
 		}
 
 		if (numReachableSources == 0)
@@ -641,6 +656,7 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 		else if (numReachableSources == 1)
 		{
 			// We must have at least one source so this needs to be definite!
+			vxy_assert(lastReachableSource.isValid());
 			if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
 				return false;
@@ -988,9 +1004,6 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 			return;
 		}
 
-		// NOTE: this would check against ALL sources, and onDistanceChanged is about our relationship to one specific source!
-		//sanityCheckNotWithinLimits(m_edgeChangeDb, vertexIndex);
-
 #if SANITY_CHECKS
 		{
 			const int sourceVertex = m_variableToSourceVertexIndex[sourceVar];
@@ -1058,23 +1071,56 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 		}
 		*/
 
-		if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
+		if (m_sourceRequirement == ShortestPathConstraint::ESourceRequirement::All)
 		{
-			// Source is definitely a source, so we need to be unreachable since we're too far
-			if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			// We need to be reachable from EVERY source, which gives us two possible options:
+			//	1. If the source is REQUIRED to be one, try to constrain ourselves to NOT require reachability
+			//	2. If the source isn't required to be one, but we DO require reachability, so try to constrain the source not to be one
+			//
+			// If neither of us is required to be reachable or a source, do nothing since further narrowings will figure it out.
+
+			if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
 			{
-				// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
-				m_edgeChangeFailure = true;
+				// Source is definitely a source, so we need to be unreachable since we're too far
+				if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
+					m_edgeChangeFailure = true;
+				}
+			}
+			else if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+			{
+				// Source doesn't need to be a source, but we DO have to reachable from all sources, so our only option is to
+				// ask the source not to be one (and hope that some other source can reach us).
+				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// We couldn't so we're out of options
+					m_edgeChangeFailure = true;
+				}
 			}
 		}
-		else if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+		else
 		{
-			// Source doesn't need to be a source, but DO have to reachable from all sources, so our only option is to
-			// ask the source not to be one (and hope that some other source can reach us).
-			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+			// We only care about being reachable by a single source, so just count the other ones
+			vector<VarID> reachableSources = {};
+			const int numReachableSources = countPotentiallyReachableSources(m_edgeChangeDb, var, &reachableSources);
+			if (numReachableSources == 0)
 			{
-				// We couldn't so we're out of options
-				m_edgeChangeFailure = true;
+				// Try to constraint us to not require reachability
+				if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// Failed
+					m_edgeChangeFailure = true;
+				}
+			}
+			else if (numReachableSources == 1 && !m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+			{
+				// We MUST be reachable and there's only one remaining source so that thing MUST be a source
+				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// We couldn't so we're out of options
+					m_edgeChangeFailure = true;
+				}
 			}
 		}
 	}

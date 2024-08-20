@@ -1120,6 +1120,150 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 	constexpr int SOURCE_IDX = 0;
 	constexpr int GENERIC_IDX = 1;
 	constexpr int TARGET_IDX = 2;
+	SolverVariableDomain typeDomain(0, 2);
+	auto typeData = solver.makeVariableGraph(TEXT("TypeData"), ITopology::adapt(topology), typeDomain, TEXT("type"));
+
+	// One source, one target
+	hash_map<int, tuple<int, int>> globalCardinalities;
+	globalCardinalities[SOURCE_IDX] = make_tuple(1, 1);
+	globalCardinalities[TARGET_IDX] = make_tuple(1, 1);
+	solver.cardinality(typeData->getData(), globalCardinalities);
+
+	// Bidirectionally connect vertices in a single line
+	topology->addEdge(0, 1);
+	topology->addEdge(1, 2);
+	topology->addEdge(2, 3);
+	topology->addEdge(3, 4);
+	topology->addEdge(4, 5);
+	topology->addEdge(5, 4);
+	topology->addEdge(4, 3);
+	topology->addEdge(3, 2);
+	topology->addEdge(2, 1);
+	topology->addEdge(1, 0);
+	auto edges = make_shared<EdgeTopology>(ITopology::adapt(topology), true, false);
+
+	// Edges can either be closed (0) or open (1)
+	SolverVariableDomain openDomain(0, 1);
+	auto openData = solver.makeVariableGraph(TEXT("EdgeData"), ITopology::adapt(edges), openDomain, TEXT("isOpen"));
+
+	// Define open vs. closed edges
+	const vector<int> origin{ SOURCE_IDX };
+	const vector<int> genericMask{ GENERIC_IDX };
+	const vector<int> target{ TARGET_IDX };
+	const vector<int> allDestMask { GENERIC_IDX, TARGET_IDX };
+	const vector<int> edge_Open = { 1 };
+	const vector<int> edge_Closed = { 0 };
+
+	const ShortestPathConstraint::ESourceRequirement sourceRequirement = requireAll ? ShortestPathConstraint::ESourceRequirement::All : ShortestPathConstraint::ESourceRequirement::Any;
+	solver.makeConstraint<ShortestPathConstraint>(typeData, origin, target, openData, edge_Closed, limits, sourceRequirement);
+	solver.makeConstraint<ReachabilityConstraint>(typeData, origin, allDestMask, openData, edge_Closed);
+
+	int validSolutions = 0;
+	//for (int iteration = 0; iteration < times; ++iteration)
+	while (true && validSolutions < 999999)
+	{
+		EConstraintSolverResult result = solver.solve();
+		if (result == Vertexy::EConstraintSolverResult::Unsatisfiable)
+		{
+			VERTEXY_LOG("Found %d of %d unique solutions.", validSolutions, expectedSolutions);
+			break;
+		}
+
+		EATEST_VERIFY(result == Vertexy::EConstraintSolverResult::Solved);
+		wstring solutionStr = TEXT("");
+
+		// Double check that the path is within limits
+		bool validPosition = false;
+		int targetVertex = -1;
+		int sourceVertex = -1;
+		for (int i = 0; i < numVertices; ++i)
+		{
+			int solvedValue = solver.getSolvedValue(typeData->get(i));
+			if (solvedValue == TARGET_IDX)
+			{
+				targetVertex = i;
+				solutionStr += TEXT("[T]");
+			}
+			else if (solvedValue == SOURCE_IDX)
+			{
+				sourceVertex = i;
+				solutionStr += TEXT("[S]");
+			}
+			else
+			{
+				solutionStr += TEXT("[ ]");
+			}
+
+			if (i < numVertices - 1)
+			{
+				int incomingIndex = edges->getVertexForSourceEdge(i + 1, i);
+				int incomingOpen = solver.getSolvedValue(openData->get(incomingIndex));
+				int outgoingIndex = edges->getVertexForSourceEdge(i, i + 1);
+				int outgoingOpen = solver.getSolvedValue(openData->get(outgoingIndex));
+
+				wstring linkStr = TEXT("");
+				if (incomingOpen == 1)
+				{
+					linkStr += TEXT("<");
+				}
+				else
+				{
+					linkStr += TEXT(" ");
+				}
+
+				linkStr += TEXT("-");
+
+				if (outgoingOpen == 1)
+				{
+					linkStr += TEXT(">");
+				}
+				else
+				{
+					linkStr += TEXT(" ");
+				}
+
+				solutionStr += linkStr;
+			}
+		}
+
+		EATEST_VERIFY(targetVertex != -1 && sourceVertex != -1);
+		vector<int> path;
+		int pathLength = TopologySearchAlgorithm::shortestPathTo(topology, sourceVertex, targetVertex, path);
+		EATEST_VERIFY(pathLength != INT_MAX);
+		EATEST_VERIFY(pathLength != 0);
+		EATEST_VERIFY(pathLength >= get<0>(limits));
+		EATEST_VERIFY(pathLength <= get<1>(limits));
+
+		// Print solution
+		if (printVerbose)
+		{
+			VERTEXY_LOG("%s", solutionStr.c_str());
+		}
+
+		++validSolutions;
+	}
+
+	EATEST_VERIFY(validSolutions == expectedSolutions);
+
+	return nErrorCount;
+}
+
+int TestSolvers::solveShortestPath_S2S(int times, int seed, tuple<int, int> limits, int numVertices, bool requireAll, int expectedSolutions, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	// Make 6 vertices
+	shared_ptr<DigraphTopology> topology = make_shared<DigraphTopology>();
+	for (int i = 0; i < numVertices; ++i) topology->addVertex();
+
+	// Need this to actually do interesting things!
+	ConstraintSolver solver(TEXT("solveShortestPath_Max"), seed);
+	VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
+
+	// Vertices can be one of three types (0: source, 1: generic, 2: target)
+	constexpr int SOURCE_IDX = 0;
+	constexpr int GENERIC_IDX = 1;
+	constexpr int TARGET_IDX = 2;
 	SolverVariableDomain typeDomain(0, 1);
 	auto typeData = solver.makeVariableGraph(TEXT("TypeData"), ITopology::adapt(topology), typeDomain, TEXT("type"));
 
@@ -1150,12 +1294,13 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 	const vector<int> origin{ SOURCE_IDX };
 	const vector<int> genericMask{ GENERIC_IDX };
 	const vector<int> target{ TARGET_IDX };
-	const vector<int> allDestMask { GENERIC_IDX, TARGET_IDX };
+	const vector<int> allDestMask{ GENERIC_IDX, TARGET_IDX };
 	const vector<int> edge_Open = { 1 };
 	const vector<int> edge_Closed = { 0 };
-	solver.makeConstraint<ShortestPathConstraint>(typeData, origin, /*target*/ origin, openData, edge_Closed, limits, requireAll);
+
+	const ShortestPathConstraint::ESourceRequirement sourceRequirement = requireAll ? ShortestPathConstraint::ESourceRequirement::All : ShortestPathConstraint::ESourceRequirement::Any;
+	solver.makeConstraint<ShortestPathConstraint>(typeData, origin, /*target*/ origin, openData, edge_Closed, limits, sourceRequirement);
 	solver.makeConstraint<ReachabilityConstraint>(typeData, origin, genericMask, openData, edge_Closed);
-	//solver.makeConstraint<ReachabilityConstraint>(typeData, target, genericMask, openData, edge_Closed);
 
 	int validSolutions = 0;
 	//for (int iteration = 0; iteration < times; ++iteration)
