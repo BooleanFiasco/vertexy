@@ -1114,7 +1114,10 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 
 	// Need this to actually do interesting things!
 	ConstraintSolver solver(TEXT("solveShortestPath_Max"), seed);
-	VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
+	if (printVerbose)
+	{
+		VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
+	}
 
 	// Vertices can be one of three types (0: source, 1: generic, 2: target)
 	constexpr int SOURCE_IDX = 0;
@@ -1165,7 +1168,10 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 		EConstraintSolverResult result = solver.solve();
 		if (result == Vertexy::EConstraintSolverResult::Unsatisfiable)
 		{
-			VERTEXY_LOG("Found %d of %d unique solutions.", validSolutions, expectedSolutions);
+			if (printVerbose)
+			{
+				VERTEXY_LOG("Found %d of %d unique solutions.", validSolutions, expectedSolutions);
+			}
 			break;
 		}
 
@@ -1258,7 +1264,10 @@ int TestSolvers::solveShortestPath_S2S(int times, int seed, tuple<int, int> limi
 
 	// Need this to actually do interesting things!
 	ConstraintSolver solver(TEXT("solveShortestPath_Max"), seed);
-	VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
+	if (printVerbose)
+	{
+		VERTEXY_LOG("Min: %d Max: %d | Initial seed: %d", get<0>(limits), get<1>(limits), solver.getInitialSeed());
+	}
 
 	// Vertices can be one of three types (0: source, 1: generic, 2: target)
 	constexpr int SOURCE_IDX = 0;
@@ -1309,7 +1318,10 @@ int TestSolvers::solveShortestPath_S2S(int times, int seed, tuple<int, int> limi
 		EConstraintSolverResult result = solver.solve();
 		if (result == Vertexy::EConstraintSolverResult::Unsatisfiable)
 		{
-			VERTEXY_LOG("Found %d of %d unique solutions.", validSolutions, expectedSolutions);
+			if (printVerbose)
+			{
+				VERTEXY_LOG("Found %d of %d unique solutions.", validSolutions, expectedSolutions);
+			}
 			break;
 		}
 
