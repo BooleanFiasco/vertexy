@@ -529,6 +529,7 @@ int ShortestPathConstraint::countPotentiallyReachableSources(const IVariableData
 	}
 
 	const int vertex = m_variableToSourceVertexIndex.at(variable);
+	const int min = get<0>(m_distanceLimits);
 	const int max = get<1>(m_distanceLimits);
 	int numReachableSources = 0;
 	for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
@@ -539,13 +540,14 @@ int ShortestPathConstraint::countPotentiallyReachableSources(const IVariableData
 			continue;
 		}
 
-		// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
-		if (!it->second.maxReachability->isReachable(vertex))
+		// Max graph always contains the shortest path, so if it's too long (or totally unreachable) we aren't within limits
+		if (!it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max)
 		{
 			continue;
 		}
-		
-		if (it->second.maxReachability->distanceTo(vertex) > max)
+
+		// Min graph always contains the longest path, so if it's too short (and reachable) then we aren't within limits
+		if (it->second.minReachability->isReachable(vertex) && it->second.minReachability->distanceTo(vertex) < min)
 		{
 			continue;
 		}
@@ -609,6 +611,7 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 
 		int numReachableSources = 0;
 		VarID lastReachableSource = VarID::INVALID;
+		const int min = get<0>(m_distanceLimits);
 		const int max = get<1>(m_distanceLimits);
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
@@ -618,13 +621,14 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 				continue;
 			}
 
+			// First check max distance
 			const bool isVertexTooFar = !it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max;
-			if (!isVertexTooFar)
+			/*if (!isVertexTooFar)
 			{
 				++numReachableSources;
 				lastReachableSource = it->first;
 			}
-			else if (m_sourceRequirement == ShortestPathConstraint::ESourceRequirement::All)
+			else*/ if (isVertexTooFar && m_sourceRequirement == ESourceRequirement::All)
 			{
 				// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
 				if (!db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
@@ -633,6 +637,25 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 				}
 			}
 
+			// Next check min distance. We only consider this if the vertex is actually reachable in the min graph,
+			// since min graph always represents the longest possible path.
+			const bool isVertexTooClose = it->second.minReachability->isReachable(vertex) && it->second.minReachability->distanceTo(vertex) < min;
+			if (isVertexTooClose && m_sourceRequirement == ESourceRequirement::All)
+			{
+				vxy_assert(!isVertexTooFar);
+
+				// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
+				if (!db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
+				{
+					return false;
+				}
+			}
+
+			if (!isVertexTooClose && !isVertexTooFar)
+			{
+				++numReachableSources;
+				lastReachableSource = it->first;
+			}
 			/*
 			if (isVertexTooFar && !db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
@@ -759,10 +782,17 @@ bool ShortestPathConstraint::removeSource(IVariableDatabase* db, VarID source)
 	bool failure = false;
 	auto checkReachability = [&](int vertex, int parent)
 		{
-			const int min = get<0>(m_distanceLimits);
 			const int max = get<1>(m_distanceLimits);
 			if (sourceData.maxReachability->distanceTo(vertex) <= max)
 			{
+				// FIXME: Don't we need to consider min distance here!? How would we do it exactly!?
+				const int min = get<0>(m_distanceLimits);
+				if (sourceData.minReachability->isReachable(vertex) && sourceData.minReachability->distanceTo(vertex) < min)
+				{
+					// FIXME: Skeptical that this logic works for min-distance...
+					//return ETopologySearchResponse::Skip;
+				}
+
 				// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
 				VarID vertexVar = m_sourceGraphData->get(vertex);
 				if (vertexVar.isValid() && db->anyPossible(vertexVar, m_requireReachableMask))
@@ -985,6 +1015,7 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 	if (inMinGraph)
 	{
 		// See if this vertex is definitely reachable by any source now
+		/*
 		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyReachable)
 		{
 			VarID var = m_sourceGraphData->get(vertexIndex);
@@ -993,6 +1024,72 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 			//	m_edgeChangeFailure = true;
 			//}
 		}
+		*/
+
+		const int min = get<0>(m_distanceLimits);
+		if (distanceFromSource >= min)
+		{
+			// This is either still reachable (in which case nothing important changed) or just became reachable,
+			// in which case we don't really care.
+			return;
+		}
+
+#if SANITY_CHECKS
+		{
+			const int sourceVertex = m_variableToSourceVertexIndex[sourceVar];
+			vector<int> path;
+			const int pathLength = TopologySearchAlgorithm::shortestPathTo(m_minGraph, sourceVertex, vertexIndex, path);
+			vxy_assert(pathLength < get<0>(m_distanceLimits));
+		}
+#endif
+		
+		if (m_sourceRequirement == ShortestPathConstraint::ESourceRequirement::All)
+		{
+			if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
+			{
+				// Source is definitely a source, so we need to be unreachable since we're too far
+				if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
+					m_edgeChangeFailure = true;
+				}
+			}
+			else if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+			{
+				// Source doesn't need to be a source, but we DO have to reachable from all sources, so our only option is to
+				// ask the source not to be one (and hope that some other source can reach us).
+				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// We couldn't so we're out of options
+					m_edgeChangeFailure = true;
+				}
+			}
+		}
+		else
+		{
+			// We only care about being reachable by a single source, so just count the other ones
+			vector<VarID> reachableSources = {};
+			const int numReachableSources = countPotentiallyReachableSources(m_edgeChangeDb, var, &reachableSources);
+			if (numReachableSources == 0)
+			{
+				// Try to constraint us to not require reachability
+				if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// Failed
+					m_edgeChangeFailure = true;
+				}
+			}
+			else if (numReachableSources == 1 && !m_edgeChangeDb->anyPossible(var, m_notReachableMask))
+			{
+				// We MUST be reachable and there's only one remaining source so that thing MUST be a source
+				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				{
+					// We couldn't so we're out of options
+					m_edgeChangeFailure = true;
+				}
+			}
+		}
+
 	}
 	else
 	{
@@ -1009,7 +1106,7 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 			const int sourceVertex = m_variableToSourceVertexIndex[sourceVar];
 			vector<int> path;
 			const int pathLength = TopologySearchAlgorithm::shortestPathTo(m_maxGraph, sourceVertex, vertexIndex, path);
-			vxy_assert(pathLength < get<0>(m_distanceLimits) || pathLength > get<1>(m_distanceLimits));
+			vxy_assert(pathLength > get<1>(m_distanceLimits));
 		}
 #endif
 

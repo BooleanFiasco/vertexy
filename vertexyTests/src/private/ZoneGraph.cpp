@@ -179,7 +179,7 @@ int ZoneGraphSolver::solve(int times, int numZones, int maxConnections, int seed
 	}
 
 	// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
-	tuple<int, int> distLimits = make_tuple(0, 4);
+	tuple<int, int> distLimits = make_tuple(0, 5);
 	solver.makeConstraint<ShortestPathConstraint>(zoneTypeData, originZone, reachableZones, pathOpenData, closedPath, distLimits);
 
 	//tuple<int, int> bossDistLimits = make_tuple(3, INT_MAX);
