@@ -103,11 +103,6 @@ namespace Vertexy
 		void addSource(const IVariableDatabase* db, VarID source);
 		bool removeSource(IVariableDatabase* db, VarID source);
 
-		void recordVertexWithinLimits(const IVariableDatabase* db, int destination, int source);
-		void eraseVertexWithinLimits(const IVariableDatabase* db, int destination);
-		void commitVertexWithinLimitsTimestamps(const IVariableDatabase* db);
-		void revertVertexWithinLimitsTimestamps();
-
 		inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 		{
 			return !db->getPotentialValues(var).anyPossible(m_notReachableMask);
@@ -175,12 +170,6 @@ namespace Vertexy
 		// Synchronized with MaxGraph. Used during explanations where we need to temporarily rewind graph state, but we don't
 		// want to propagate to the source reachability trees.
 		shared_ptr<BacktrackingDigraphTopology> m_explanationGraph;
-
-		// Tracking specifically for distance limits. Whenever vertex distances change, if the distance is within required
-		// limits an entry is added so that it can be rewound if a conflict arises later on.
-		// Mapping is: destination => { source => { timestamp } } 
-		hash_map<int, hash_map<int, SolverTimestamp>> m_lastWithinLimitsTimestamp;
-		hash_map<int, hash_map<int, SolverTimestamp>> m_withinLimitsTimestampsToCommit;
 
 		ValueSet m_sourceMask;
 		ValueSet m_notSourceMask;

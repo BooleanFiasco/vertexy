@@ -86,7 +86,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("ShortestPath-Min-S2S-All-3", []() { return TestSolvers::solveShortestPath_S2S(NUM_TIMES, FORCE_SEED, make_tuple(3, INT_MAX - 1), 6, true, 6, PRINT_VERBOSE); });
 	Suite.AddTest("ShortestPath-Min-S2S-All-2", []() { return TestSolvers::solveShortestPath_S2S(NUM_TIMES, FORCE_SEED, make_tuple(2, INT_MAX - 1), 6, true, 14, PRINT_VERBOSE); });
 
-	//Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(5, INT_MAX-1), 6, true, 2, true); });
+	Suite.AddTest("ShortestPath-Min", []() { return TestSolvers::solveShortestPath(NUM_TIMES, FORCE_SEED, make_tuple(5, INT_MAX - 1), 6, true, 2, PRINT_VERBOSE); });
 	//Suite.AddTest("ShortestPath-Range", []() { return TestSolvers::solveShortestPath_Range(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	//Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("ZoneGraph", []() { return ZoneGraphSolver::solve(NUM_TIMES, 50, 4, FORCE_SEED, true); });

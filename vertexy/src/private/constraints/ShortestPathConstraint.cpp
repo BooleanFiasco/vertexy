@@ -380,38 +380,22 @@ bool ShortestPathConstraint::initialize(IVariableDatabase* db)
 		}
 	}
 
-	// Constrain all variables that are definitely reachable by any definite reachability source to reachable
-	// Constrain all variables that are not reachable by all potential reachability sources to unreachable
+	// Constrain any variable that no potential source can ever serve within the distance limits
+	// to unreachable. Note we deliberately do NOT do the converse propagation (constraining
+	// vertices that are already within limits of a definite source to a require-reachable value):
+	// determineReachability's DefinitelyReachable is Any-only and ignores the min limit, so that
+	// propagation would be unsound under ESourceRequirement::All or a nonzero min limit.
 	for (int vertex = 0; vertex < m_sourceGraph->getNumVertices(); ++vertex)
 	{
 		VarID vertexVar = m_sourceGraphData->get(vertex);
-		if (vertexVar.isValid())
+		if (vertexVar.isValid() && countPotentiallyReachableSources(db, vertexVar) == 0)
 		{
-			EReachabilityDetermination determination = determineReachability(db, vertex);
-
-			if (determination == EReachabilityDetermination::DefinitelyUnreachable_TooLong)
+			if (!db->constrainToValues(vertexVar, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
 			{
-				VERTEXY_LOG("HEY");
-				//if (!db->constrainToValues(vertexVar, m_notReachableMask, this))
-				//{
-					//revertVertexWithinLimitsTimestamps();
-				//	return false;
-				//}
-			}
-			else if (determination == EReachabilityDetermination::DefinitelyReachable)
-			{
-				VERTEXY_LOG("YO");
-				//if (!db->constrainToValues(vertexVar, m_requireReachableMask, this))
-				//{
-					//revertVertexWithinLimitsTimestamps();
-				//	return false;
-				//}
+				return false;
 			}
 		}
 	}
-
-	// We succeeded so commit valid timestamps for all vertices
-	//commitVertexWithinLimitsTimestamps(db);
 
 	return true;
 }
@@ -470,7 +454,6 @@ bool ShortestPathConstraint::propagate(IVariableDatabase* db)
 		updateGraphsForEdgeChange(db, edgeVar);
 		if (m_edgeChangeFailure)
 		{
-			//revertVertexWithinLimitsTimestamps();
 			return false;
 		}
 	}
@@ -488,14 +471,12 @@ bool ShortestPathConstraint::propagate(IVariableDatabase* db)
 			it->second.maxReachability->refresh();
 			if (m_edgeChangeFailure)
 			{
-				//revertVertexWithinLimitsTimestamps();
 				return false;
 			}
 
 			it->second.minReachability->refresh();
 			if (m_edgeChangeFailure)
 			{
-				//revertVertexWithinLimitsTimestamps();
 				return false;
 			}
 		}
@@ -509,14 +490,10 @@ bool ShortestPathConstraint::propagate(IVariableDatabase* db)
 	{
 		if (!processVertexVariableChange(db, vertexVar))
 		{
-			//revertVertexWithinLimitsTimestamps();
 			return false;
 		}
 	}
 	m_vertexProcessList.clear();
-
-	// We succeeded so commit valid timestamps for any vertices that had their distance change
-	//commitVertexWithinLimitsTimestamps(db);
 
 	return true;
 }
@@ -579,35 +556,10 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 	{
 		int vertex = m_variableToSourceVertexIndex[variable];
 
-		/*
-		int numReachableSources = 0;
-		VarID lastReachableSource = VarID::INVALID;
-		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
-		{
-			// #bug: Since this is looking at max reachability, this could easily fail min distance checks since max graph
-			// is always going to have super short paths
-
-			// There's an interesting order of operations problem here because m_vertexProcessList might contain vertices that
-			// are currently in m_reachabilitySources but have been constrained to be unreachable. If they're later in the queue,
-			// we won't have called removeSource() yet, and so we need to also make sure that anything in m_reachabilitySources
-			// has anyPossible(it->first, m_sourceMask) is true.
-			//const bool unprocessedSourceRemoval = !db->anyPossible(it->first, m_sourceMask);
-			//const int idx = indexOfPredicate(m_vertexProcessList.begin(), m_vertexProcessList.end(), [&](VarID& var) { return var == it->first; });
-			//vxy_assert(!unprocessedSourceRemoval || idx != -1);
-
-			if (it->second.maxReachability->isReachableWithinLimits(vertex, m_distanceLimits))
-			{
-				++numReachableSources;
-				lastReachableSource = it->first;
-				vxy_assert(db->anyPossible(it->first, m_sourceMask));
-
-				if (numReachableSources > 1)
-				{
-					break;
-				}
-			}
-		}
-		*/
+		// NOTE order-of-operations subtlety: m_vertexProcessList can contain variables that are still in
+		// m_reachabilitySources but have already been constrained away from being sources; if they're later
+		// in the queue removeSource() hasn't been called yet, so they may be counted as reachable sources
+		// below. That only weakens propagation (overcounting), it never unsoundly constrains.
 
 		int numReachableSources = 0;
 		VarID lastReachableSource = VarID::INVALID;
@@ -623,12 +575,7 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 
 			// First check max distance
 			const bool isVertexTooFar = !it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max;
-			/*if (!isVertexTooFar)
-			{
-				++numReachableSources;
-				lastReachableSource = it->first;
-			}
-			else*/ if (isVertexTooFar && m_sourceRequirement == ESourceRequirement::All)
+			if (isVertexTooFar && m_sourceRequirement == ESourceRequirement::All)
 			{
 				// Since all sources need to be reachable, any source that's too far from this reachable vertex needs to not be a source
 				if (!db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
@@ -656,17 +603,6 @@ bool ShortestPathConstraint::processVertexVariableChange(IVariableDatabase* db, 
 				++numReachableSources;
 				lastReachableSource = it->first;
 			}
-			/*
-			if (isVertexTooFar && !db->constrainToValues(it->first, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
-			{
-				return false;
-			}
-			else if (!isVertexTooFar)
-			{
-				++numReachableSources;
-				lastReachableSource = it->first;
-			}
-			*/
 		}
 
 		if (numReachableSources == 0)
@@ -835,52 +771,6 @@ bool ShortestPathConstraint::removeSource(IVariableDatabase* db, VarID source)
 	return !failure;
 }
 
-void ShortestPathConstraint::recordVertexWithinLimits(const IVariableDatabase* db, int destination, int source)
-{
-	if (m_explainingSourceRequirement)
-	{
-		return;
-	}
-
-	if (m_withinLimitsTimestampsToCommit.find(destination) == m_withinLimitsTimestampsToCommit.end())
-	{
-		m_withinLimitsTimestampsToCommit[destination] = hash_map<int, SolverTimestamp>();
-	}
-	m_withinLimitsTimestampsToCommit[destination][source] = db->getTimestamp();
-}
-
-void ShortestPathConstraint::eraseVertexWithinLimits(const IVariableDatabase* db, int destination)
-{
-	if (m_withinLimitsTimestampsToCommit.find(destination) != m_withinLimitsTimestampsToCommit.end())
-	{
-		vxy_assert(false);
-		m_withinLimitsTimestampsToCommit.erase(destination);
-	}
-}
-
-void ShortestPathConstraint::commitVertexWithinLimitsTimestamps(const IVariableDatabase* db)
-{
-	for (const auto& toCommit : m_withinLimitsTimestampsToCommit)
-	{
-		if (m_lastWithinLimitsTimestamp.find(toCommit.first) == m_lastWithinLimitsTimestamp.end())
-		{
-			m_lastWithinLimitsTimestamp[toCommit.first] = hash_map<int, SolverTimestamp>();
-		}
-
-		for (auto& value : toCommit.second)
-		{
-			m_lastWithinLimitsTimestamp[toCommit.first].insert(value.first);
-			m_lastWithinLimitsTimestamp[toCommit.first][value.first] = value.second;
-		}
-	}
-	m_withinLimitsTimestampsToCommit.clear();
-}
-
-void ShortestPathConstraint::revertVertexWithinLimitsTimestamps()
-{
-	m_withinLimitsTimestampsToCommit.clear();
-}
-
 void ShortestPathConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable)
 {
 	vxy_assert(!m_inEdgeChange);
@@ -939,6 +829,12 @@ void ShortestPathConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, Va
 	}
 }
 
+// NOTE: Currently dead code! RamalReps is constructed with reportReachability=false in addSource(),
+// so the onReachabilityChanged listeners never fire; (un)reachability arrives via onDistanceChanged
+// with distanceFromSource == INT_MAX instead. Kept for if/when reachability events are re-enabled.
+// CAUTION before re-enabling: the DefinitelyReachable branch below constrains the vertex to a
+// require-reachable value, which is unsound under ESourceRequirement::All or a nonzero min limit
+// (see the FIXME in determineReachability).
 void ShortestPathConstraint::onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)
 {
 	vxy_assert(!m_backtracking);
@@ -962,7 +858,6 @@ void ShortestPathConstraint::onReachabilityChanged(int vertexIndex, VarID source
 			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_requireReachableMask, this))
 			{
 				m_edgeChangeFailure = true;
-				//revertVertexWithinLimitsTimestamps();
 			}
 		}
 	}
@@ -984,12 +879,6 @@ void ShortestPathConstraint::onReachabilityChanged(int vertexIndex, VarID source
 
 void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar, int distanceFromSource, bool inMinGraph)
 {
-	// #min-fixes: I think we need to check to see if an addition to the min-graph makes the distance too short
-	// here, which would be a failure since the min-graph is the longest a dist can ever be!
-	//
-	// We also need to check to see if the max graph path became too long vs. max, but I think determineReachability
-	// already does that correctly.
-
 	vxy_assert(!m_backtracking);
 	vxy_assert(!m_explainingSourceRequirement);
 
@@ -1014,18 +903,8 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 
 	if (inMinGraph)
 	{
-		// See if this vertex is definitely reachable by any source now
-		/*
-		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyReachable)
-		{
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			//if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_requireReachableMask, this))
-			//{
-			//	m_edgeChangeFailure = true;
-			//}
-		}
-		*/
-
+		// The min graph only gains edges, so distances there only shrink; since the min graph distance is an
+		// upper bound on the final distance, dropping below the min limit is a permanent violation for this source.
 		const int min = get<0>(m_distanceLimits);
 		if (distanceFromSource >= min)
 		{
@@ -1047,7 +926,7 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 		{
 			if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
 			{
-				// Source is definitely a source, so we need to be unreachable since we're too far
+				// Source is definitely a source, so we need to be unreachable since we're too close
 				if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
 				{
 					// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
@@ -1082,7 +961,7 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 			else if (numReachableSources == 1 && !m_edgeChangeDb->anyPossible(var, m_notReachableMask))
 			{
 				// We MUST be reachable and there's only one remaining source so that thing MUST be a source
-				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				if (!m_edgeChangeDb->constrainToValues(reachableSources[0], m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 				{
 					// We couldn't so we're out of options
 					m_edgeChangeFailure = true;
@@ -1110,63 +989,9 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 		}
 #endif
 
-		// If we got here it means this source is no longer reachable from this vertex, which has two possible ramifications:
-		//	1. We either can make ourselves not require reachability or,
-		//	2. We make the source not a source anymore
-		//
-		// As long as one of these two works, we're still okay.
-		//
-		// TODO: Does the order matter here?
-
-		/*
-		if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
-		{
-			// See if we can force the source not to be a source
-			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
-			{
-				// We couldn't so we're out of options
-				m_edgeChangeFailure = true;
-			}
-		}
-		else if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
-		{
-			// We weren't able to constrain ourselves to not require reachability, so this edge change failed
-			m_edgeChangeFailure = true;
-		}
-		*/
-
-		/*
-		if (!m_edgeChangeDb->anyPossible(var, m_notReachableMask))
-		{
-			// We are required to be reachable from all sources, so let's see if we can force this source not to be a source instead
-			if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
-			{
-				// We couldn't so we're out of options
-				m_edgeChangeFailure = true;
-			}
-		}
-		else if (!m_edgeChangeDb->anyPossible(sourceVar, m_notSourceMask))
-		{
-			// Okay, so if we're here it means:
-			//	1. This vertex can be marked as requiring reachability, but...
-			//	2. ...this vertex can ALSO be marked as NOT requiring reachability!
-			//	3. The source vertex that can reach us is REQUIRED to be a source
-			// 
-			// What does this mean? If the source vertex needs to be a source, it also needs to be able to reach this
-			// vertex (which it cannot). Since the max graph always contains the shortest possible paths, that means
-			// we'll NEVER be reachable from this source. As such, the only possible way to satisfy the constraint is
-			// if we can constrain ourselves to be not reachable.
-			// 
-			// Note that we only do this if the source is definite! If it's not definite, an alternative solution would
-			// be for the source to later not become a source. Both options are valid, so we make no decisions here in that case!
-
-			if (!m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
-			{
-				// sourceVar is definitely a source, and we cannot be made unreachable, so this is a failure
-				m_edgeChangeFailure = true;
-			}
-		}
-		*/
+		// If we got here it means this source is no longer reachable from this vertex within the max limit.
+		// The max graph only loses edges, so distances there only grow; since the max graph distance is a
+		// lower bound on the final distance, exceeding the max limit is a permanent violation for this source.
 
 		if (m_sourceRequirement == ShortestPathConstraint::ESourceRequirement::All)
 		{
@@ -1213,7 +1038,7 @@ void ShortestPathConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar,
 			else if (numReachableSources == 1 && !m_edgeChangeDb->anyPossible(var, m_notReachableMask))
 			{
 				// We MUST be reachable and there's only one remaining source so that thing MUST be a source
-				if (!m_edgeChangeDb->constrainToValues(sourceVar, m_notSourceMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
+				if (!m_edgeChangeDb->constrainToValues(reachableSources[0], m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 				{
 					// We couldn't so we're out of options
 					m_edgeChangeFailure = true;
@@ -1235,12 +1060,6 @@ void ShortestPathConstraint::backtrack(const IVariableDatabase* db, SolverDecisi
 	{
 		for (VarID sourceVar : m_backtrackData.back().reachabilitySourcesRemoved)
 		{
-			int vertexTmp = m_variableToSourceVertexIndex[sourceVar];
-			int blah = 0;
-			if (vertexTmp == 4)
-			{
-				blah = 1;
-			}
 			addSource(db, sourceVar);
 		}
 		m_backtrackData.pop_back();
@@ -1451,7 +1270,50 @@ vector<VarID> ShortestPathConstraint::getConstrainingVariables() const
 
 bool ShortestPathConstraint::checkConflicting(IVariableDatabase* db) const
 {
-	// TODO
+	const int min = get<0>(m_distanceLimits);
+	const int max = get<1>(m_distanceLimits);
+
+	for (int vertex = 0; vertex < m_sourceGraph->getNumVertices(); ++vertex)
+	{
+		VarID vertexVar = m_sourceGraphData->get(vertex);
+		if (!vertexVar.isValid() || !definitelyNeedsToReach(db, vertexVar))
+		{
+			continue;
+		}
+
+		// Provably violated if no potential source can still serve this vertex within limits
+		// (also covers the requirement that at least one source must serve it)
+		if (countPotentiallyReachableSources(db, vertexVar) == 0)
+		{
+			return true;
+		}
+
+		if (m_sourceRequirement == ESourceRequirement::All)
+		{
+			// Every definite source must be able to serve this vertex within limits
+			for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
+			{
+				if (it->first == vertexVar || !definitelyIsSource(db, it->first))
+				{
+					// No reflexive reachability; potential-but-not-definite sources can still back out
+					continue;
+				}
+
+				// Max graph distance is a lower bound on the final distance
+				if (!it->second.maxReachability->isReachable(vertex) || it->second.maxReachability->distanceTo(vertex) > max)
+				{
+					return true;
+				}
+
+				// Min graph distance is an upper bound on the final distance
+				if (it->second.minReachability->isReachable(vertex) && it->second.minReachability->distanceTo(vertex) < min)
+				{
+					return true;
+				}
+			}
+		}
+	}
+
 	return false;
 }
 

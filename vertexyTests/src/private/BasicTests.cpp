@@ -1104,6 +1104,80 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 	return nErrorCount;
 }
 
+// Independently validate a solved ShortestPathConstraint: rebuild the subgraph of edges the solver
+// actually left open, then verify every require-reachable vertex is served by sources within
+// [min,max] under the given source requirement. Semantics mirror the constraint:
+//	- Non-reflexive: a vertex cannot serve as its own source.
+//	- Requiring reachability implies at least one (other) source serves the vertex within limits.
+//	- ESourceRequirement::All additionally requires EVERY other source to serve it within limits.
+static int verifySolvedShortestPaths(
+	ConstraintSolver& solver,
+	const shared_ptr<DigraphTopology>& topology,
+	const shared_ptr<EdgeTopology>& edges,
+	const shared_ptr<TTopologyVertexData<VarID>>& openData,
+	const vector<int>& sourceVertices,
+	const vector<int>& needReachVertices,
+	tuple<int, int> limits,
+	bool requireAll)
+{
+	int nErrorCount = 0;
+
+	// Build the subgraph containing only solved-open edges
+	shared_ptr<DigraphTopology> solvedGraph = make_shared<DigraphTopology>();
+	for (int i = 0; i < topology->getNumVertices(); ++i)
+	{
+		solvedGraph->addVertex();
+	}
+	for (int i = 0; i < edges->getNumVertices(); ++i)
+	{
+		if (solver.getSolvedValue(openData->get(i)) != 0)
+		{
+			int from, to;
+			bool bidirectional;
+			edges->getSourceEdgeForVertex(i, from, to, bidirectional);
+			solvedGraph->addEdge(from, to);
+			if (bidirectional)
+			{
+				solvedGraph->addEdge(to, from);
+			}
+		}
+	}
+
+	const int minDist = get<0>(limits);
+	const int maxDist = get<1>(limits);
+	for (int vertex : needReachVertices)
+	{
+		int numOtherSources = 0;
+		int numWithinLimits = 0;
+		for (int source : sourceVertices)
+		{
+			if (source == vertex)
+			{
+				// No reflexive reachability
+				continue;
+			}
+			++numOtherSources;
+
+			vector<int> path;
+			const int dist = TopologySearchAlgorithm::shortestPathTo(solvedGraph, source, vertex, path);
+			if (dist != INT_MAX && dist >= minDist && dist <= maxDist)
+			{
+				++numWithinLimits;
+			}
+		}
+
+		// Requiring reachability implies at least one source serves us
+		EATEST_VERIFY(numWithinLimits >= 1);
+		if (requireAll)
+		{
+			// Every source must serve us
+			EATEST_VERIFY(numWithinLimits == numOtherSources);
+		}
+	}
+
+	return nErrorCount;
+}
+
 int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, int numVertices, bool requireAll, int expectedSolutions, bool printVerbose)
 {
 	int nErrorCount = 0;
@@ -1233,12 +1307,10 @@ int TestSolvers::solveShortestPath(int times, int seed, tuple<int, int> limits, 
 		}
 
 		EATEST_VERIFY(targetVertex != -1 && sourceVertex != -1);
-		vector<int> path;
-		int pathLength = TopologySearchAlgorithm::shortestPathTo(topology, sourceVertex, targetVertex, path);
-		EATEST_VERIFY(pathLength != INT_MAX);
-		EATEST_VERIFY(pathLength != 0);
-		EATEST_VERIFY(pathLength >= get<0>(limits));
-		EATEST_VERIFY(pathLength <= get<1>(limits));
+
+		// Validate distances on the subgraph of edges the solver actually left open
+		nErrorCount += verifySolvedShortestPaths(solver, topology, edges, openData,
+			vector<int>{ sourceVertex }, vector<int>{ targetVertex }, limits, requireAll);
 
 		// Print solution
 		if (printVerbose)
@@ -1330,19 +1402,13 @@ int TestSolvers::solveShortestPath_S2S(int times, int seed, tuple<int, int> limi
 
 		// Double check that the path is within limits
 		bool validPosition = false;
-		int targetVertex = -1;
-		int sourceVertex = -1;
+		vector<int> sourceVertices;
 		for (int i = 0; i < numVertices; ++i)
 		{
 			int solvedValue = solver.getSolvedValue(typeData->get(i));
-			if (solvedValue == TARGET_IDX)
+			if (solvedValue == SOURCE_IDX)
 			{
-				targetVertex = i;
-				solutionStr += TEXT("[T]");
-			}
-			else if (solvedValue == SOURCE_IDX)
-			{
-				sourceVertex = i;
+				sourceVertices.push_back(i);
 				solutionStr += TEXT("[S]");
 			}
 			else
@@ -1382,15 +1448,10 @@ int TestSolvers::solveShortestPath_S2S(int times, int seed, tuple<int, int> limi
 			}
 		}
 
-		/*
-		EATEST_VERIFY(targetVertex != -1 && sourceVertex != -1);
-		vector<int> path;
-		int pathLength = TopologySearchAlgorithm::shortestPathTo(topology, sourceVertex, targetVertex, path);
-		EATEST_VERIFY(pathLength != INT_MAX);
-		EATEST_VERIFY(pathLength != 0);
-		EATEST_VERIFY(pathLength >= get<0>(limits));
-		EATEST_VERIFY(pathLength <= get<1>(limits));
-		*/
+		// Sources are their own destinations here: every source must be served by the OTHER sources
+		EATEST_VERIFY(!sourceVertices.empty());
+		nErrorCount += verifySolvedShortestPaths(solver, topology, edges, openData,
+			sourceVertices, sourceVertices, limits, requireAll);
 
 		// Print solution
 		if (printVerbose)
