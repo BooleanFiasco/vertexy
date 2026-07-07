@@ -94,35 +94,33 @@ int ZoneGraphSolver::solve(int times, int numZones, int maxConnections, int seed
 
 	VERTEXY_LOG("  CREATED %d ZONES...", nodes.size());
 
-	//SolverVariableDomain zoneTypeDomain(0, 1);
 	// Define all valid zone types
 	VXY_DOMAIN_BEGIN(ZoneTypeDomain)
 		VXY_DOMAIN_VALUE(combat);
 		VXY_DOMAIN_VALUE(basecamp);
 		VXY_DOMAIN_VALUE(boss);
-		//VXY_DOMAIN_VALUE(oasis);
+		VXY_DOMAIN_VALUE(oasis);
 	VXY_DOMAIN_END()
 
 	auto zoneTypeDomain = ZoneTypeDomain::get()->getSolverDomain();
 	auto zoneTypeData = solver.makeVariableGraph(TEXT("ZoneData"), ITopology::adapt(zoneGraph), zoneTypeDomain, TEXT("type"));
 
-	const vector<int> reachableZones{ ZoneTypeDomain::get()->combat.getValueIndex() }; // Any zone other than the basecamp
+	const vector<int> reachableZones{ ZoneTypeDomain::get()->combat.getValueIndex(), ZoneTypeDomain::get()->boss.getValueIndex(), ZoneTypeDomain::get()->oasis.getValueIndex() }; // Any zone other than the basecamp
 	const vector<int> originZone{ ZoneTypeDomain::get()->basecamp.getValueIndex() }; // Basecamp zone, all other zones need to be reachable from here
-	const vector<int> spreadZones{ ZoneTypeDomain::get()->boss.getValueIndex() };
-
-	// Arbitrarily use the first node as origin (it doesn't matter since all nodes are fully connected!)
-	//solver.setInitialValues(zoneTypeData->get(nodes[0]), originZone);
+	const vector<int> spreadZones{ ZoneTypeDomain::get()->oasis.getValueIndex() };
+	const vector<int> combatZones{ ZoneTypeDomain::get()->combat.getValueIndex(), ZoneTypeDomain::get()->boss.getValueIndex() };
 
 	// Only one basecamp and boss zone is allowed!
 	hash_map<int, tuple<int, int>> zoneTypeCardinalities;
 	zoneTypeCardinalities[ZoneTypeDomain::get()->basecamp.getValueIndex()] = make_tuple(1, 1);
 	zoneTypeCardinalities[ZoneTypeDomain::get()->boss.getValueIndex()] = make_tuple(1, 1);
+	zoneTypeCardinalities[ZoneTypeDomain::get()->oasis.getValueIndex()] = make_tuple(5, 10);
 
 	// Just make zone-0 the basecamp always
-	solver.setInitialValues(zoneTypeData->get(0), vector{ 1 });
+	solver.setInitialValues(zoneTypeData->get(0), vector{ ZoneTypeDomain::get()->basecamp.getValueIndex() });
 
 	// Just make zone-1 the boss always
-	solver.setInitialValues(zoneTypeData->get(1), vector{ 2 });
+	solver.setInitialValues(zoneTypeData->get(1), vector{ ZoneTypeDomain::get()->boss.getValueIndex() });
 
 	solver.cardinality(zoneTypeData->getData(), zoneTypeCardinalities);
 
@@ -178,12 +176,23 @@ int ZoneGraphSolver::solve(int times, int numZones, int maxConnections, int seed
 		solver.cardinality(edgeVars, pathOpenCardinalities);
 	}
 
+	constexpr int MAX_DIST_FROM_BASECAMP = 6;
+
 	// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
-	tuple<int, int> distLimits = make_tuple(0, 5);
+	tuple<int, int> distLimits = make_tuple(0, MAX_DIST_FROM_BASECAMP);
 	solver.makeConstraint<ShortestPathConstraint>(zoneTypeData, originZone, reachableZones, pathOpenData, closedPath, distLimits);
 
-	//tuple<int, int> bossDistLimits = make_tuple(3, INT_MAX);
-	//solver.makeConstraint<PathDistanceConstraint>(zoneTypeData, originZone, spreadZones, pathOpenData, closedPath, bossDistLimits);
+	// Oasis zones can never be adjacent to basecamp, and also shouldn't be on the very edges of the graph (most of the time)
+	//tuple<int, int> oasisDistLimits = make_tuple(2, MAX_DIST_FROM_BASECAMP - 1);
+	//solver.makeConstraint<ShortestPathConstraint>(zoneTypeData, originZone, spreadZones, pathOpenData, closedPath, oasisDistLimits);
+
+	// Ensure that oasis zones are separated by at least 2 other zones
+	tuple<int, int> oasisSpacing = make_tuple(3, INT_MAX);
+	solver.makeConstraint<ShortestPathConstraint>(zoneTypeData, spreadZones, spreadZones, pathOpenData, closedPath, oasisSpacing, ShortestPathConstraint::ESourceRequirement::All);
+
+	// Make sure every combat zone can reach an oasis zone in no more than 4 moves
+	tuple<int, int> oasisToCombatDistLimits = make_tuple(0, 4);
+	solver.makeConstraint<ShortestPathConstraint>(zoneTypeData, spreadZones, combatZones, pathOpenData, closedPath, oasisToCombatDistLimits);
 
 	VERTEXY_LOG("  READY TO SOLVE! STARTING...");
 
@@ -239,6 +248,7 @@ int ZoneGraphSolver::solve(int times, int numZones, int maxConnections, int seed
 		zoneTypeNames[0] = TEXT("combat");
 		zoneTypeNames[1] = TEXT("basecamp");
 		zoneTypeNames[2] = TEXT("boss");
+		zoneTypeNames[3] = TEXT("oasis");
 
 		for (auto node : nodes)
 		{
